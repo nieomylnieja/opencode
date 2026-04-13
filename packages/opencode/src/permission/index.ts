@@ -190,6 +190,27 @@ export namespace Permission {
         }
         log.info("asking", { id, permission: info.permission, patterns: info.patterns })
 
+        const hook = yield* Effect.tryPromise(() =>
+          import("../plugin/index").then(({ Plugin }) =>
+            Plugin.trigger("permission.ask", info, {
+              status: "ask" as "ask" | "deny" | "allow",
+              message: undefined as string | undefined,
+            }),
+          ),
+        ).pipe(
+          Effect.timeout(5000),
+          Effect.catch((error) => {
+            log.warn("permission.ask hook failed", { error })
+            return Effect.succeed(undefined)
+          }),
+        )
+
+        if (hook?.status === "allow") return
+        if (hook?.status === "deny") {
+          if (hook.message) return yield* new CorrectedError({ feedback: hook.message })
+          return yield* new RejectedError()
+        }
+
         const deferred = yield* Deferred.make<void, RejectedError | CorrectedError>()
         pending.set(id, { info, deferred })
         yield* bus.publish(Event.Asked, info)

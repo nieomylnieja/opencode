@@ -1,6 +1,7 @@
-import { afterEach, test, expect } from "bun:test"
+import { afterEach, test, expect, spyOn } from "bun:test"
 import os from "os"
 import { Bus } from "../../src/bus"
+import { Plugin } from "../../src/plugin"
 import { Permission } from "../../src/permission"
 import { PermissionID } from "../../src/permission/schema"
 import { Instance } from "../../src/project/instance"
@@ -22,10 +23,10 @@ async function rejectAll(message?: string) {
 }
 
 async function waitForPending(count: number) {
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 100; i++) {
     const list = await Permission.list()
     if (list.length === count) return list
-    await Bun.sleep(0)
+    await Bun.sleep(10)
   }
   return Permission.list()
 }
@@ -530,7 +531,7 @@ test("ask - returns pending promise when action is ask", async () => {
       })
       // Promise should be pending, not resolved
       expect(promise).toBeInstanceOf(Promise)
-      // Don't await - just verify it returns a promise
+      await waitForPending(1)
       await rejectAll()
       await promise.catch(() => {})
     },
@@ -555,7 +556,7 @@ test("ask - adds request to pending list", async () => {
         ruleset: [],
       })
 
-      const list = await Permission.list()
+      const list = await waitForPending(1)
       expect(list).toHaveLength(1)
       expect(list[0]).toMatchObject({
         sessionID: SessionID.make("session_test"),
@@ -598,7 +599,7 @@ test("ask - publishes asked event", async () => {
         ruleset: [],
       })
 
-      expect(await Permission.list()).toHaveLength(1)
+      expect(await waitForPending(1)).toHaveLength(1)
       expect(seen).toBeDefined()
       expect(seen).toMatchObject({
         sessionID: SessionID.make("session_test"),
@@ -1047,6 +1048,118 @@ test("reply - does nothing for unknown requestID", async () => {
       expect(await Permission.list()).toHaveLength(0)
     },
   })
+})
+
+test("hook - allow bypasses pending prompt", async () => {
+  await using tmp = await tmpdir({ git: true })
+  const spy = spyOn(Plugin, "trigger").mockImplementation(async (_name, _input, output) => {
+    const out = output as { status: "ask" | "deny" | "allow"; message?: string }
+    out.status = "allow"
+    return output
+  })
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const result = await Permission.ask({
+          sessionID: SessionID.make("session_hook_allow"),
+          permission: "bash",
+          patterns: ["ls"],
+          metadata: {},
+          always: [],
+          ruleset: [{ permission: "bash", pattern: "*", action: "ask" }],
+        })
+        expect(result).toBeUndefined()
+        expect(await Permission.list()).toHaveLength(0)
+      },
+    })
+    expect(spy).toHaveBeenCalled()
+  } finally {
+    spy.mockRestore()
+  }
+})
+
+test("hook - deny with message throws corrected error", async () => {
+  await using tmp = await tmpdir({ git: true })
+  const spy = spyOn(Plugin, "trigger").mockImplementation(async (_name, _input, output) => {
+    const out = output as { status: "ask" | "deny" | "allow"; message?: string }
+    out.status = "deny"
+    out.message = "blocked by policy"
+    return output
+  })
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const err = await Permission.ask({
+          sessionID: SessionID.make("session_hook_deny"),
+          permission: "bash",
+          patterns: ["ls"],
+          metadata: {},
+          always: [],
+          ruleset: [{ permission: "bash", pattern: "*", action: "ask" }],
+        }).catch((err) => err)
+        expect(err).toBeInstanceOf(Permission.CorrectedError)
+        expect(err.message).toContain("blocked by policy")
+      },
+    })
+  } finally {
+    spy.mockRestore()
+  }
+})
+
+test("hook - error falls back to prompt flow", async () => {
+  await using tmp = await tmpdir({ git: true })
+  const spy = spyOn(Plugin, "trigger").mockImplementation(async () => {
+    throw new Error("boom")
+  })
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const ask = Permission.ask({
+          sessionID: SessionID.make("session_hook_error"),
+          permission: "bash",
+          patterns: ["ls"],
+          metadata: {},
+          always: [],
+          ruleset: [{ permission: "bash", pattern: "*", action: "ask" }],
+        })
+        await waitForPending(1)
+        await rejectAll()
+        await ask.catch(() => {})
+      },
+    })
+    expect(spy).toHaveBeenCalled()
+  } finally {
+    spy.mockRestore()
+  }
+})
+
+test("hook - skipped when rules already allow", async () => {
+  await using tmp = await tmpdir({ git: true })
+  const spy = spyOn(Plugin, "trigger").mockImplementation(async () => {
+    throw new Error("should not run")
+  })
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const result = await Permission.ask({
+          sessionID: SessionID.make("session_hook_skip"),
+          permission: "bash",
+          patterns: ["ls"],
+          metadata: {},
+          always: [],
+          ruleset: [{ permission: "bash", pattern: "*", action: "allow" }],
+        })
+        expect(result).toBeUndefined()
+      },
+    })
+    expect(spy).not.toHaveBeenCalled()
+  } finally {
+    spy.mockRestore()
+  }
 })
 
 test("ask - checks all patterns and stops on first deny", async () => {
