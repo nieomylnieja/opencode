@@ -2,7 +2,6 @@ import { Bus } from "@/bus"
 import { BusEvent } from "@/bus/bus-event"
 import { Config } from "@/config/config"
 import { InstanceState } from "@/effect/instance-state"
-import { makeRuntime } from "@/effect/run-service"
 import { ProjectID } from "@/project/schema"
 import { Instance } from "@/project/instance"
 import { MessageID, SessionID } from "@/session/schema"
@@ -10,11 +9,12 @@ import { PermissionTable } from "@/session/session.sql"
 import { Database, eq } from "@/storage/db"
 import { Log } from "@/util/log"
 import { Wildcard } from "@/util/wildcard"
-import { Deferred, Effect, Layer, Schema, ServiceMap } from "effect"
+import { Deferred, Effect, Layer, Schema, Context } from "effect"
 import os from "os"
 import z from "zod"
 import { evaluate as evalRule } from "./evaluate"
 import { PermissionID } from "./schema"
+import { Plugin } from "@/plugin"
 
 export namespace Permission {
   const log = Log.create({ service: "permission" })
@@ -135,12 +135,13 @@ export namespace Permission {
     return evalRule(permission, pattern, ...rulesets)
   }
 
-  export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/Permission") {}
+  export class Service extends Context.Service<Service, Interface>()("@opencode/Permission") {}
 
   export const layer = Layer.effect(
     Service,
     Effect.gen(function* () {
       const bus = yield* Bus.Service
+      const plugin = yield* Plugin.Service
       const state = yield* InstanceState.make<State>(
         Effect.fn("Permission.state")(function* (ctx) {
           const row = Database.use((db) =>
@@ -190,20 +191,18 @@ export namespace Permission {
         }
         log.info("asking", { id, permission: info.permission, patterns: info.patterns })
 
-        const hook = yield* Effect.tryPromise(() =>
-          import("../plugin/index").then(({ Plugin }) =>
-            Plugin.trigger("permission.ask", info, {
-              status: "ask" as "ask" | "deny" | "allow",
-              message: undefined as string | undefined,
+        const hook = yield* plugin
+          .trigger("permission.ask", info, {
+            status: "ask" as "ask" | "deny" | "allow",
+            message: undefined as string | undefined,
+          })
+          .pipe(
+            Effect.timeout(5000),
+            Effect.catch((error) => {
+              log.warn("permission.ask hook failed", { error })
+              return Effect.succeed(undefined)
             }),
-          ),
-        ).pipe(
-          Effect.timeout(5000),
-          Effect.catch((error) => {
-            log.warn("permission.ask hook failed", { error })
-            return Effect.succeed(undefined)
-          }),
-        )
+          )
 
         if (hook?.status === "allow") return
         if (hook?.status === "deny") {
@@ -287,7 +286,7 @@ export namespace Permission {
 
       return Service.of({ ask, reply, list })
     }),
-  )
+  ).pipe(Layer.provide(Plugin.defaultLayer))
 
   function expand(pattern: string): string {
     if (pattern.startsWith("~/")) return os.homedir() + pattern.slice(1)
@@ -329,18 +328,4 @@ export namespace Permission {
   }
 
   export const defaultLayer = layer.pipe(Layer.provide(Bus.layer))
-
-  export const { runPromise } = makeRuntime(Service, defaultLayer)
-
-  export async function ask(input: z.infer<typeof AskInput>) {
-    return runPromise((s) => s.ask(input))
-  }
-
-  export async function reply(input: z.infer<typeof ReplyInput>) {
-    return runPromise((s) => s.reply(input))
-  }
-
-  export async function list() {
-    return runPromise((s) => s.list())
-  }
 }
