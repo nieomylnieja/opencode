@@ -430,8 +430,14 @@ test("project config takes precedence over OPENCODE_TUI_CONFIG (matches OPENCODE
 test("merges keybind overrides across precedence layers", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
-      await Bun.write(path.join(Global.Path.config, "tui.json"), JSON.stringify({ keybinds: { app_exit: "ctrl+q" } }))
-      await Bun.write(path.join(dir, "tui.json"), JSON.stringify({ keybinds: { theme_list: "ctrl+k" } }))
+      await Bun.write(
+        path.join(Global.Path.config, "tui.json"),
+        JSON.stringify({ keybinds: { app_exit: "ctrl+q", permission_diff_up: "k" } }),
+      )
+      await Bun.write(
+        path.join(dir, "tui.json"),
+        JSON.stringify({ keybinds: { theme_list: "ctrl+k", permission_diff_down: "j" } }),
+      )
     },
   })
 
@@ -441,6 +447,8 @@ test("merges keybind overrides across precedence layers", async () => {
       const config = await TuiConfig.get()
       expect(config.keybinds?.app_exit).toBe("ctrl+q")
       expect(config.keybinds?.theme_list).toBe("ctrl+k")
+      expect(config.keybinds?.permission_diff_up).toBe("k")
+      expect(config.keybinds?.permission_diff_down).toBe("j")
     },
   })
 })

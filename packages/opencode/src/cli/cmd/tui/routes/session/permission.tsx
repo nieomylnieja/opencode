@@ -1,7 +1,7 @@
 import { createStore } from "solid-js/store"
 import { createMemo, For, Match, Show, Switch } from "solid-js"
 import { Portal, useKeyboard, useRenderer, useTerminalDimensions, type JSX } from "@opentui/solid"
-import type { TextareaRenderable } from "@opentui/core"
+import type { ScrollBoxRenderable, TextareaRenderable } from "@opentui/core"
 import { useKeybind } from "../../context/keybind"
 import { useTheme, selectedForeground } from "../../context/theme"
 import type { PermissionRequest } from "@opencode-ai/sdk/v2"
@@ -46,7 +46,7 @@ function filetype(input?: string) {
   return language
 }
 
-function EditBody(props: { request: PermissionRequest }) {
+function EditBody(props: { request: PermissionRequest; scroll?: (scroll: ScrollBoxRenderable) => void }) {
   const themeState = useTheme()
   const theme = themeState.theme
   const syntax = themeState.syntax
@@ -69,6 +69,7 @@ function EditBody(props: { request: PermissionRequest }) {
     <box flexDirection="column" gap={1}>
       <Show when={diff()}>
         <scrollbox
+          ref={(r: ScrollBoxRenderable) => props.scroll?.(r)}
           height="100%"
           scrollAcceleration={scrollAcceleration()}
           verticalScrollbarOptions={{
@@ -214,10 +215,19 @@ export function PermissionPrompt(props: { request: PermissionRequest }) {
             if (permission === "edit") {
               const raw = props.request.metadata?.filepath
               const filepath = typeof raw === "string" ? raw : ""
+              let scroll: ScrollBoxRenderable | undefined
               return {
                 icon: "→",
                 title: `Edit ${normalizePath(filepath)}`,
-                body: <EditBody request={props.request} />,
+                body: (
+                  <EditBody
+                    request={props.request}
+                    scroll={(r) => {
+                      scroll = r
+                    }}
+                  />
+                ),
+                scroll: () => scroll,
               }
             }
 
@@ -437,6 +447,7 @@ export function PermissionPrompt(props: { request: PermissionRequest }) {
               options={{ once: "Allow once", always: "Allow always", reject: "Reject" }}
               escapeKey="reject"
               fullscreen
+              scroll={"scroll" in current ? current.scroll : undefined}
               onSelect={(option) => {
                 if (option === "always") {
                   setStore("stage", "always")
@@ -550,6 +561,7 @@ function Prompt<const T extends Record<string, string>>(props: {
   options: T
   escapeKey?: keyof T
   fullscreen?: boolean
+  scroll?: () => ScrollBoxRenderable | undefined
   onSelect: (option: keyof T) => void
 }) {
   const { theme } = useTheme()
@@ -572,6 +584,7 @@ function Prompt<const T extends Record<string, string>>(props: {
       const idx = keys.indexOf(store.selected)
       const next = keys[(idx - 1 + keys.length) % keys.length]
       setStore("selected", next)
+      return
     }
 
     if (evt.name === "right" || evt.name == "l") {
@@ -579,26 +592,44 @@ function Prompt<const T extends Record<string, string>>(props: {
       const idx = keys.indexOf(store.selected)
       const next = keys[(idx + 1) % keys.length]
       setStore("selected", next)
+      return
     }
 
     if (evt.name === "return") {
       evt.preventDefault()
       props.onSelect(store.selected)
+      return
     }
 
     if (props.escapeKey && (evt.name === "escape" || keybind.match("app_exit", evt))) {
       evt.preventDefault()
       props.onSelect(props.escapeKey)
+      return
     }
 
     if (props.fullscreen && diffKey && Keybind.match(diffKey, keybind.parse(evt))) {
       evt.preventDefault()
       evt.stopPropagation()
       setStore("expanded", (v) => !v)
+      return
+    }
+
+    if (props.fullscreen && props.scroll) {
+      const by = keybind.match("permission_diff_up", evt) ? -1 : keybind.match("permission_diff_down", evt) ? 1 : 0
+      if (!by) return
+      const box = props.scroll()
+      if (!box || box.isDestroyed) return
+      evt.preventDefault()
+      evt.stopPropagation()
+      box.scrollBy(by)
+      return
     }
   })
 
   const hint = createMemo(() => (store.expanded ? "minimize" : "fullscreen"))
+  const rows = createMemo(() =>
+    [keybind.print("permission_diff_up"), keybind.print("permission_diff_down")].filter(Boolean).join("/"),
+  )
   const renderer = useRenderer()
 
   const content = () => (
@@ -670,6 +701,11 @@ function Prompt<const T extends Record<string, string>>(props: {
           <Show when={props.fullscreen}>
             <text fg={theme.text}>
               {"ctrl+f"} <span style={{ fg: theme.textMuted }}>{hint()}</span>
+            </text>
+          </Show>
+          <Show when={props.fullscreen && props.scroll && rows()}>
+            <text fg={theme.text}>
+              {rows()} <span style={{ fg: theme.textMuted }}>scroll</span>
             </text>
           </Show>
           <text fg={theme.text}>
