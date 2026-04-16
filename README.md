@@ -1,3 +1,10 @@
+> [!IMPORTANT]
+> This is an opinionated fork of the original repository for my personal use and
+> built to my liking.
+> For a list of custom changes with rationale see [CHANGELOG.md](./CHANGELOG.md).
+
+---
+
 <p align="center">
   <a href="https://opencode.ai">
     <picture>
@@ -42,11 +49,6 @@
 [![OpenCode Terminal UI](packages/web/src/assets/lander/screenshot.png)](https://opencode.ai)
 
 ---
-
-> [!IMPORTANT]
-> Is an opinionated form of the original repository for my personal use and
-> liking.
-> For a list of custom changes with rationale see [CHANGELOG.md](./CHANGELOG.md).
 
 ### Installation
 
