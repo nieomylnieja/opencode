@@ -203,6 +203,54 @@ describe("tool.bash permissions", () => {
     })
   })
 
+  each("includes raw command in bash permission metadata", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await initBash()
+        const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+        await Effect.runPromise(
+          bash.execute(
+            {
+              command: "echo hello",
+              description: "Echo hello",
+            },
+            capture(requests),
+          ),
+        )
+        const req = requests.find((item) => item.permission === "bash")
+        expect(req).toBeDefined()
+        expect(req!.metadata.command).toBe("echo hello")
+      },
+    })
+  })
+
+  each("preserves full pipeline command in metadata.command", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await initBash()
+        const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+        const command = "git log --oneline | head -5"
+        await Effect.runPromise(
+          bash.execute(
+            {
+              command,
+              description: "Git log",
+            },
+            capture(requests),
+          ),
+        )
+        const req = requests.find((item) => item.permission === "bash")
+        expect(req).toBeDefined()
+        expect(req!.patterns.length).toBeGreaterThan(1)
+        expect(req!.metadata.command).toBe(command)
+      },
+    })
+  })
+
   for (const item of ps) {
     test(
       `parses PowerShell conditionals for permission prompts [${item.label}]`,

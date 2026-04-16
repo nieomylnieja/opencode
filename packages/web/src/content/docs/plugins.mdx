@@ -196,6 +196,10 @@ Plugins can subscribe to events as seen below in the Examples section. Here is a
 
 - `shell.env`
 
+#### Permission Hooks
+
+- `permission.ask`
+
 #### Tool Events
 
 - `tool.execute.after`
@@ -237,6 +241,38 @@ We are using `osascript` to run AppleScript on macOS. Here we are using it to se
 :::note
 If you’re using the OpenCode desktop app, it can send system notifications automatically when a response is ready or when a session errors.
 :::
+
+---
+
+### External permissions policy
+
+Use `permission.ask` to integrate an external approval policy. The hook fires only when OpenCode would normally ask the user.
+
+```ts title=".opencode/plugins/permissions.ts"
+import type { Plugin } from "@opencode-ai/plugin"
+
+export const PermissionsPlugin: Plugin = async () => {
+  return {
+    "permission.ask": async (input, output) => {
+      const allowed = await myExternalPolicy(input)
+      if (allowed) {
+        output.status = "allow"
+        return
+      }
+
+      output.status = "deny"
+      output.message = `Denied by policy: ${input.permission}`
+      // keep "ask" to fall through to the normal prompt
+    },
+  }
+}
+```
+
+`output.status` values:
+
+- `"allow"`: skip the prompt and approve
+- `"deny"`: reject immediately (`output.message` is optional feedback)
+- `"ask"`: continue with the normal prompt
 
 ---
 
