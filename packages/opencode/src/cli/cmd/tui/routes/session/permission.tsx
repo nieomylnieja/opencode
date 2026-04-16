@@ -11,8 +11,8 @@ import { useSync } from "../../context/sync"
 import { useTextareaKeybindings } from "../../component/textarea-keybindings"
 import path from "path"
 import { LANGUAGE_EXTENSIONS } from "@/lsp/language"
-import { Keybind } from "@/util/keybind"
-import { Locale } from "@/util/locale"
+import { Keybind } from "@/util"
+import { Locale } from "@/util"
 import { Global } from "@/global"
 import { useDialog } from "../../ui/dialog"
 import { getScrollAcceleration } from "../../util/scroll"
@@ -185,7 +185,7 @@ export function PermissionPrompt(props: { request: PermissionRequest }) {
           onSelect={(option) => {
             setStore("stage", "permission")
             if (option === "cancel") return
-            sdk.client.permission.reply({
+            void sdk.client.permission.reply({
               reply: "always",
               requestID: props.request.id,
             })
@@ -195,7 +195,7 @@ export function PermissionPrompt(props: { request: PermissionRequest }) {
       <Match when={store.stage === "reject"}>
         <RejectPrompt
           onConfirm={(message) => {
-            sdk.client.permission.reply({
+            void sdk.client.permission.reply({
               reply: "reject",
               requestID: props.request.id,
               message: message || undefined,
@@ -458,13 +458,13 @@ export function PermissionPrompt(props: { request: PermissionRequest }) {
                     setStore("stage", "reject")
                     return
                   }
-                  sdk.client.permission.reply({
+                  void sdk.client.permission.reply({
                     reply: "reject",
                     requestID: props.request.id,
                   })
                   return
                 }
-                sdk.client.permission.reply({
+                void sdk.client.permission.reply({
                   reply: "once",
                   requestID: props.request.id,
                 })
@@ -630,7 +630,7 @@ function Prompt<const T extends Record<string, string>>(props: {
   const rows = createMemo(() =>
     [keybind.print("permission_diff_up"), keybind.print("permission_diff_down")].filter(Boolean).join("/"),
   )
-  const renderer = useRenderer()
+  useRenderer()
 
   const content = () => (
     <box

@@ -31,24 +31,25 @@ import {
   type Usage,
 } from "@agentclientprotocol/sdk"
 
-import { Log } from "../util/log"
+import { Log } from "../util"
 import { pathToFileURL } from "url"
-import { Filesystem } from "../util/filesystem"
-import { Hash } from "../util/hash"
+import { Filesystem } from "../util"
+import { Hash } from "@opencode-ai/shared/util/hash"
 import { ACPSessionManager } from "./session"
 import type { ACPConfig } from "./types"
-import { Provider } from "../provider/provider"
+import { Provider } from "../provider"
 import { ModelID, ProviderID } from "../provider/schema"
 import { Agent as AgentModule } from "../agent/agent"
 import { AppRuntime } from "@/effect/app-runtime"
 import { Installation } from "@/installation"
 import { MessageV2 } from "@/session/message-v2"
-import { Config } from "@/config/config"
+import { Config } from "@/config"
 import { Todo } from "@/session/todo"
 import { z } from "zod"
 import { LoadAPIKeyError } from "ai"
 import type { AssistantMessage, Event, OpencodeClient, SessionMessageResponse, ToolPart } from "@opencode-ai/sdk/v2"
 import { applyPatch } from "diff"
+import { InstallationVersion } from "@/installation/version"
 
 type ModeOption = { id: string; name: string; description?: string }
 type ModelOption = { modelId: string; name: string }
@@ -242,7 +243,7 @@ export namespace ACP {
                 const newContent = getNewContent(content, diff)
 
                 if (newContent) {
-                  this.connection.writeTextFile({
+                  void this.connection.writeTextFile({
                     sessionId: session.id,
                     path: filepath,
                     content: newContent,
@@ -453,19 +454,12 @@ export namespace ACP {
                 return
             }
           }
+
+          // ACP clients already know the prompt they just submitted, so replaying
+          // live user parts duplicates the message. We still replay user history in
+          // loadSession() and forkSession() via processMessage().
           if (part.type !== "text" && part.type !== "file") return
-          const msg = await this.sdk.session
-            .message(
-              { sessionID: part.sessionID, messageID: part.messageID, directory: session.cwd },
-              { throwOnError: true },
-            )
-            .then((x) => x.data)
-            .catch((err) => {
-              log.error("failed to fetch message for user chunk", { error: err })
-              return undefined
-            })
-          if (!msg || msg.info.role !== "user") return
-          await this.processMessage({ info: msg.info, parts: [part] })
+
           return
         }
 
@@ -577,7 +571,7 @@ export namespace ACP {
         authMethods: [authMethod],
         agentInfo: {
           name: "OpenCode",
-          version: Installation.VERSION,
+          version: InstallationVersion,
         },
       }
     }
@@ -1260,7 +1254,7 @@ export namespace ACP {
       )
 
       setTimeout(() => {
-        this.connection.sessionUpdate({
+        void this.connection.sessionUpdate({
           sessionId,
           update: {
             sessionUpdate: "available_commands_update",
@@ -1573,7 +1567,6 @@ export namespace ACP {
       case "context7_get_library_docs":
         return "search"
 
-      case "list":
       case "read":
         return "read"
 
@@ -1594,8 +1587,6 @@ export namespace ACP {
         return input["path"] ? [{ path: input["path"] }] : []
       case "bash":
         return []
-      case "list":
-        return input["path"] ? [{ path: input["path"] }] : []
       default:
         return []
     }
