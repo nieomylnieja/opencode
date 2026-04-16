@@ -584,6 +584,8 @@ export const Keybinds = z
     session_unshare: z.string().optional().default("none").describe("Unshare current session"),
     session_interrupt: z.string().optional().default("escape").describe("Interrupt current session"),
     session_compact: z.string().optional().default("<leader>c").describe("Compact the session"),
+    permission_diff_up: z.string().optional().default("up").describe("Scroll fullscreen permission diff up"),
+    permission_diff_down: z.string().optional().default("down").describe("Scroll fullscreen permission diff down"),
     messages_page_up: z.string().optional().default("pageup,ctrl+alt+b").describe("Scroll messages up by one page"),
     messages_page_down: z
       .string()
