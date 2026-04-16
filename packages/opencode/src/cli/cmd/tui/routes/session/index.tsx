@@ -7,6 +7,7 @@ import {
   For,
   Match,
   on,
+  onCleanup,
   onMount,
   Show,
   Switch,
@@ -1351,12 +1352,32 @@ function AssistantMessage(props: { message: AssistantMessage; parts: Part[]; las
     return props.message.finish && !["tool-calls", "unknown"].includes(props.message.finish)
   })
 
-  const duration = createMemo(() => {
-    if (!final()) return 0
-    if (!props.message.time.completed) return 0
+  const [now, setNow] = createSignal(Date.now())
+
+  createEffect(() => {
+    if (!props.last) return
+    if (props.message.time.completed) return
+
+    setNow(Date.now())
+    const timer = setInterval(() => {
+      setNow(Date.now())
+    }, 250)
+
+    onCleanup(() => {
+      clearInterval(timer)
+    })
+  })
+
+  const startedAt = createMemo(() => {
     const user = messages().find((x) => x.role === "user" && x.id === props.message.parentID)
-    if (!user || !user.time) return 0
-    return props.message.time.completed - user.time.created
+    if (user?.time?.created) return user.time.created
+    return props.message.time.created
+  })
+
+  const duration = createMemo(() => {
+    if (props.message.time.completed) return props.message.time.completed - startedAt()
+    if (!props.last) return 0
+    return now() - startedAt()
   })
 
   const keybind = useKeybind()
@@ -1600,6 +1621,12 @@ type ToolProps<T> = {
   output?: string
   part: ToolPart
 }
+
+function toolStartTime(part: ToolPart) {
+  if (part.state.status === "pending") return
+  return part.state.time.start
+}
+
 function GenericTool(props: ToolProps<any>) {
   const { theme } = useTheme()
   const ctx = use()
@@ -1713,7 +1740,9 @@ function InlineTool(props: {
     >
       <Switch>
         <Match when={props.spinner}>
-          <Spinner color={fg()} children={props.children} />
+          <Spinner color={fg()} start={toolStartTime(props.part)} showElapsed={props.part.tool === "task"}>
+            {props.children}
+          </Spinner>
         </Match>
         <Match when={true}>
           <text paddingLeft={3} fg={fg()} attributes={denied() ? TextAttributes.STRIKETHROUGH : undefined}>
@@ -1767,7 +1796,13 @@ function BlockTool(props: {
           </text>
         }
       >
-        <Spinner color={theme.textMuted}>{props.title.replace(/^# /, "")}</Spinner>
+        <Spinner
+          color={theme.textMuted}
+          start={props.part ? toolStartTime(props.part) : undefined}
+          showElapsed={props.part?.tool === "task"}
+        >
+          {props.title.replace(/^# /, "")}
+        </Spinner>
       </Show>
       {props.children}
       <Show when={error()}>
